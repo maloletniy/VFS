@@ -1,20 +1,13 @@
 import org.junit.Test;
-import ru.mltny.vfs.Settings;
-import ru.mltny.vfs.VFSTools;
 import ru.mltny.vfs.VFSToolsImpl;
-import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
-import sun.reflect.misc.FieldUtil;
-
-import java.io.*;
-import java.util.Arrays;
 
 /**
  * Created by IntelliJ IDEA.
  * User: maloletniy
  * Date: 4/4/12
  * Time: 5:14 PM
- * To change this template use File | Settings | File Templates.
+ * Test
  */
 
 
@@ -44,12 +37,8 @@ public class TestArchive {
             System.out.println(n);
 
             byte[] testData = new byte[1025];
-            byte[] testData2 = new byte[1023];
-
             testData[0] = 100;
             testData[1024] = 101;
-            testData2[0] = 102;
-            testData2[1022] = 103;
 
 
             for (Long link : n.getLink()) {

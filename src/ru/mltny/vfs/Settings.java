@@ -5,7 +5,7 @@ package ru.mltny.vfs;
  * User: maloletniy
  * Date: 4/18/12
  * Time: 1:59 PM
- * To change this template use File | Settings | File Templates.
+ * Default object container params
  */
 public final class Settings {
 

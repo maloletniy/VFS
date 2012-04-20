@@ -66,8 +66,8 @@ public class Node {
     /**
      * writes type, name, links[], size about current node to file
      *
-     * @param file
-     * @throws IOException
+     * @param file container file descriptor
+     * @throws IOException if any container problem
      */
     public void writeNode(RandomAccessFile file) throws IOException {
         file.seek(this.address);
@@ -85,7 +85,7 @@ public class Node {
      * @param file container descriptor
      * @param link pointer to node start
      * @return node object
-     * @throws IOException
+     * @throws IOException if any container problem
      */
     public static Node getNodeAtPoint(RandomAccessFile file, long link) throws IOException {
         Node node = new Node();
@@ -107,8 +107,8 @@ public class Node {
     /**
      * update node information about links in container
      *
-     * @param file
-     * @throws IOException
+     * @param file container descriptor
+     * @throws IOException if any container problem
      */
     public void updateLinks(RandomAccessFile file) throws IOException {
         //смещение к указателя на ссылки

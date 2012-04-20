@@ -10,7 +10,7 @@ import java.io.RandomAccessFile;
  * User: maloletniy
  * Date: 4/19/12
  * Time: 6:38 PM
- * To change this template use File | Settings | File Templates.
+ * Cluster object
  */
 public class Cluster {
     private long link;
@@ -54,8 +54,8 @@ public class Cluster {
     /**
      * writes information about cluster to container
      *
-     * @param file
-     * @throws IOException
+     * @param file container file descriptor
+     * @throws IOException if any container problem
      */
     public void writeClusterInfo(RandomAccessFile file) throws IOException {
         file.seek(this.address);
@@ -70,7 +70,7 @@ public class Cluster {
      * @param file contatiner descriptor
      * @param data byte array of data
      * @param off  data array offset
-     * @throws IOException
+     * @throws IOException if any container problem
      */
     public void writeClusterData(RandomAccessFile file, byte[] data, int off) throws IOException {
         file.seek(this.address + 4);

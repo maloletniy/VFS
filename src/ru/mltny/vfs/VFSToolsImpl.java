@@ -35,7 +35,7 @@ public class VFSToolsImpl implements VFSTools {
     /**
      * reads info about clusters status, etc...
      *
-     * @throws IOException
+     * @throws IOException if any container problem
      */
     private void updateContainerInfo() throws IOException {
         long time1 = System.currentTimeMillis();
@@ -66,7 +66,7 @@ public class VFSToolsImpl implements VFSTools {
     /**
      * Fills container with nodes and clusters
      *
-     * @throws IOException
+     * @throws IOException if any container problem
      */
     public void createContainer() throws IOException {
 
@@ -87,7 +87,7 @@ public class VFSToolsImpl implements VFSTools {
             Node node2 = new Node();
             node2.setSize(0);
             node2.setType('-');
-            node2.setAddress(i * node2.getObjectSize());
+            node2.setAddress(i * Node.getObjectSize());
             node2.writeNode(file);
         }
 
@@ -168,7 +168,7 @@ public class VFSToolsImpl implements VFSTools {
 
 //        int oldClusterCount = (int) Math.ceil((double) node.getSize() / Settings.CLUSTER_SIZE_BYTES);
         int newClusterCount = (int) Math.ceil((double) bytes.length / Settings.CLUSTER_SIZE_BYTES);
-        long firstClusterLink = -1;
+        long firstClusterLink;
         //Смотрим есть ли уже ссылки на кластера
         if (node.getLink()[0] != 0) {
             firstClusterLink = node.getLink()[0];
