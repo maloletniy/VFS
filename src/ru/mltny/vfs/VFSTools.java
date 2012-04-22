@@ -19,13 +19,13 @@ public interface VFSTools {
 
     public byte[] read(Node node) throws Exception;
 
-    public void append(long node, byte[] bytes) throws Exception;
+    public void append(Node node, byte[] bytes) throws Exception;
 
-    public void rename(String path, String name) throws Exception;
+    public void rename(Node node, Node parent, String name) throws Exception;
 
-    public void delete(String path) throws Exception;
+    public void delete(Node node, Node parent) throws Exception;
 
-    public void move(String path1, String path2) throws Exception;
+    public void move(Node node, Node parent, Node newParent) throws Exception;
 
     public Node getNodeByPath(long link) throws IOException;
 

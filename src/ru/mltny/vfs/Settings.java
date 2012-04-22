@@ -1,5 +1,7 @@
 package ru.mltny.vfs;
 
+import ru.mltny.vfs.units.Node;
+
 /**
  * Created by IntelliJ IDEA.
  * User: maloletniy
@@ -17,10 +19,8 @@ public final class Settings {
 
     public static final int CLUSTER_COUNT = 100000;
 
-    public static final int NODE_SIZE_BYTES = 166;
-
     public static final int NODE_COUNT = CLUSTER_COUNT / 4;
 
-    public static final long CLUSTER_FIRST_ADDRESS = NODE_COUNT * NODE_SIZE_BYTES;
+    public static final long CLUSTER_FIRST_ADDRESS = NODE_COUNT * Node.getObjectSize();
 
 }

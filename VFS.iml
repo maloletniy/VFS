@@ -17,6 +17,8 @@
         <SOURCES />
       </library>
     </orderEntry>
+    <orderEntry type="library" name="Logger" level="project" />
+    <orderEntry type="library" name="Resources" level="project" />
   </component>
 </module>
 

@@ -1,7 +1,9 @@
 package ru.mltny.vfs;
 
+import org.apache.log4j.Logger;
 import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
+import sun.rmi.runtime.Log;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -17,10 +19,11 @@ import java.util.Arrays;
 public class VFSToolsImpl implements VFSTools {
 
     private RandomAccessFile file;
-
+    private final Logger LOG = Logger.getLogger(VFSToolsImpl.class);
 
     //состояние кластеров
     //Получаем на 10гб(20971520 clusters) 85мб занимает только хранение состояний кластеров
+    //todo malolentiy тут облажался, надо хранить адреса а не индексы, иначе не покрывает весь long
     private int[] emptyClusters = new int[Settings.CLUSTER_COUNT];
 
     public VFSToolsImpl(String path) throws IOException {
@@ -49,7 +52,9 @@ public class VFSToolsImpl implements VFSTools {
                 emptyClusters[i] = i;
             }
         }
-        System.out.println("Update container: " + (System.currentTimeMillis() - time1));
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Update container: " + (System.currentTimeMillis() - time1));
+        }
     }
 
     private int getEmptyClusterIndex() throws Exception {
@@ -81,8 +86,8 @@ public class VFSToolsImpl implements VFSTools {
         long time1 = System.currentTimeMillis();
         //Заполняем все ноды пустышками
         for (int i = 1; i < Settings.NODE_COUNT; i++) {
-            if (i % (Settings.NODE_COUNT / 10) == 0) {
-                System.out.print(i * 100 / Settings.NODE_COUNT + "%..");
+            if (LOG.isInfoEnabled() && i % (Settings.NODE_COUNT / 10) == 0) {
+                LOG.info(i * 100 / Settings.NODE_COUNT + "%..");
             }
             Node node2 = new Node();
             node2.setSize(0);
@@ -91,18 +96,18 @@ public class VFSToolsImpl implements VFSTools {
             node2.writeNode(file);
         }
 
-        System.out.println("Create nodes: " + (System.currentTimeMillis() - time1));
+        LOG.info("Create nodes: " + (System.currentTimeMillis() - time1));
 
         time1 = System.currentTimeMillis();
         //заполняем инфу о кластерах
         for (int i = 0; i < Settings.CLUSTER_COUNT; i++) {
-            if (i % (Settings.CLUSTER_COUNT / 10) == 0) {
-                System.out.print(i * 100 / Settings.CLUSTER_COUNT + "%..");
+            if (LOG.isInfoEnabled() && i % (Settings.CLUSTER_COUNT / 10) == 0) {
+                LOG.info(i * 100 / Settings.CLUSTER_COUNT + "%..");
             }
             Cluster cluster = new Cluster(-1, 0, Settings.CLUSTER_FIRST_ADDRESS + i * Cluster.getObjectSize());
             cluster.writeClusterInfo(file);
         }
-        System.out.println("Create clusters: " + (System.currentTimeMillis() - time1));
+        LOG.info("Create clusters: " + (System.currentTimeMillis() - time1));
 
         updateContainerInfo();
     }
@@ -121,7 +126,7 @@ public class VFSToolsImpl implements VFSTools {
         long freeNodePointer = -1;
 
         for (int i = 1; i < Settings.NODE_COUNT; i++) {
-            Node n = Node.getNodeAtPoint(file, Settings.NODE_SIZE_BYTES * i);
+            Node n = Node.getNodeAtPoint(file, Node.getObjectSize() * i);
 
             //проверка на уникальность имени создаваемого файла
             if (Arrays.equals(n.getName(), name.toCharArray())) {
@@ -166,14 +171,20 @@ public class VFSToolsImpl implements VFSTools {
             throw new Exception("cannot write - not a file: \n" + node);
         }
 
-//        int oldClusterCount = (int) Math.ceil((double) node.getSize() / Settings.CLUSTER_SIZE_BYTES);
+        int oldClusterCount = (int) Math.ceil((double) node.getSize() / Settings.CLUSTER_SIZE_BYTES);
         int newClusterCount = (int) Math.ceil((double) bytes.length / Settings.CLUSTER_SIZE_BYTES);
         long firstClusterLink;
+
+        //Если новый размер меньше старого и придется обновлять список свободных кластеров
+        // то сортируем его чтобы в начале были занятые кластеры
+        if (oldClusterCount > newClusterCount) {
+            Arrays.sort(emptyClusters);
+        }
+
         //Смотрим есть ли уже ссылки на кластера
         if (node.getLink()[0] != 0) {
             firstClusterLink = node.getLink()[0];
 
-            //todo maloletniy сделать перезапись уже существующих данных
             //бежим по существующим кластерам
             //Пишем пока не закончатся существующие кластеры или данные
             long nextClusterLink = firstClusterLink;
@@ -196,16 +207,16 @@ public class VFSToolsImpl implements VFSTools {
                     // и добавляем их индексы в список пустых кластеров
                     if (cluster.getLink() != -1) {
                         long link = cluster.getLink();
+                        int fullClusterIndex = 0;
                         while (link != -1) {
                             //Ищем слд связаный кластер
                             Cluster c = Cluster.getClusterAtPoint(file, link);
                             link = c.getLink();
-                            int index = (int) ((c.getAddress() - Settings.CLUSTER_FIRST_ADDRESS) / Cluster.getObjectSize());
+                            int index = c.getClusterIndex();
 
                             //Обновляем список свободных кластеров
-                            //todo maloletny подумать нужно ли каждый раз делать сортировку
-                            Arrays.sort(emptyClusters);
-                            emptyClusters[0] = index;
+                            emptyClusters[fullClusterIndex] = index;
+                            fullClusterIndex++;
 
                             c.setSize(0);
                             c.setLink(-1);
@@ -296,24 +307,196 @@ public class VFSToolsImpl implements VFSTools {
         return result;
     }
 
-    public void append(long node, byte[] bytes) throws Exception {
-        throw new Exception("not implemented yet");
-        //Найти конец существующей ноды и дописать в нее даные
+    /**
+     * Appends bytes to last cluster
+     *
+     * @param node  node to append data
+     * @param bytes data to append
+     * @throws Exception any container exception
+     */
+    public void append(Node node, byte[] bytes) throws Exception {
+
+        long nextClusterAddress = node.getAddress();
+        Cluster c = null;
+        int offset = 0;
+
+        //Ищем последний кластер в цепочке
+        while (nextClusterAddress != -1) {
+            c = Cluster.getClusterAtPoint(file, nextClusterAddress);
+            nextClusterAddress = c.getAddress();
+        }
+        if (c == null) {
+            throw new Exception("Cluster calculate error");
+        }
+        //Смотрим, можем ли мы дописать в послед кластер
+        if (c.getSize() < Settings.CLUSTER_SIZE_BYTES) {
+            offset += c.appendClusterData(file, bytes, offset);
+            //Обновляем инфу о размере записанных данных
+            c.setSize(c.getSize() + offset);
+            c.writeClusterInfo(file);
+        }
+
+        //Если еще остались данные после допии в кластер
+        if (offset < bytes.length) {
+            // берем новые кластера, и пишем в них до конца данных, делаем ссылки на след кластера и пишем размер
+            nextClusterAddress = Settings.CLUSTER_FIRST_ADDRESS + getEmptyClusterIndex() * Cluster.getObjectSize();
+            while (offset < bytes.length) {
+                Cluster cluster = new Cluster(nextClusterAddress);
+
+                //Если этого кластера не достаточно для записи всех данных то нужно селать ссылку на след
+                if ((offset + Settings.CLUSTER_SIZE_BYTES) > bytes.length) {
+                    nextClusterAddress = Settings.CLUSTER_FIRST_ADDRESS + getEmptyClusterIndex() * Cluster.getObjectSize();
+                    cluster.setLink(nextClusterAddress);
+                } else {
+                    cluster.setLink(-1);
+                }
+                //пишем данные и обновляем размер записанных данных
+                int size = cluster.writeClusterData(file, bytes, offset);
+                offset += size;
+                cluster.setSize(size);
+
+                //Обновляем информацию о кластере
+                cluster.writeClusterInfo(file);
+            }
+        }
+
     }
 
-    public void rename(String path, String name) throws Exception {
-        throw new Exception("not implemented yet");
-        //тупо переименовать ноду
+    /**
+     * Renames file or directory
+     *
+     * @param node Node which name will be renamed
+     * @param name new name of node
+     * @throws Exception if any container problem
+     */
+    public void rename(Node node, Node parent, String name) throws Exception {
+        char[] charName = name.toCharArray();
+        boolean inDir = false;
+        //проверяем уникальность имен в родителе
+        for (long l : parent.getLink()) {
+
+            if (Arrays.equals(Node.getNodeAtPoint(file, l).getName(), charName)) {
+                throw new Exception("duplicate file name");
+            }
+            //заодно проверяем что нода принадлежит родителю
+            if (l == node.getAddress()) {
+                inDir = true;
+            }
+        }
+        if (!inDir) {
+            throw new Exception("Parent node doesn't contains renaming node");
+        }
+        node.setName(name);
+        node.updateName(file);
     }
 
-    public void delete(String path) throws Exception {
-        throw new Exception("not implemented yet");
-        //а вот тут ндо подумать как отмечать удаленные данные
+    /**
+     * Removes node from parent node and clears clusters
+     *
+     * @param node   which will be deleted
+     * @param parent of deleted node
+     * @throws Exception if any container or logic problem
+     */
+    public void delete(Node node, Node parent) throws Exception {
+        //todo maloletniy delete operation
+        //Если файл то бежим по всем кластерам, отмечаем размер 0, ссылку -1 и помещаем индекс в список пустых кластеров,
+        //а также удаляем из родительской ноды ссылку
+        if (node.getType() == 'f') {
+            //Обнуляем информацию о ноде
+            node.setSize(0);
+            node.getLink()[0] = 0;
+            node.setType('-');
+            node.setName("");
+            node.writeNode(file);
+
+            //Затираем в родителе ссылку
+            Arrays.sort(parent.getLink());
+            int index = Arrays.binarySearch(parent.getLink(), node.getAddress());
+            parent.getLink()[index] = 0;
+            parent.updateLinks(file);
+
+            //Бежим по кластерами и обнуляем инфу и ссылки
+            //Сортируем пустые индексы чтобы в начале появились занятые кластеры
+            Arrays.sort(emptyClusters);
+            int fullClusterIndex = 0;
+            long nextLinkAddress = node.getLink()[0];
+            while (nextLinkAddress != -1) {
+                Cluster c = Cluster.getClusterAtPoint(file, nextLinkAddress);
+                nextLinkAddress = c.getLink();
+
+                c.setSize(0);
+                c.setLink(-1);
+                c.writeClusterInfo(file);
+
+                //Вычисляем пустой индекс
+                emptyClusters[fullClusterIndex] = c.getClusterIndex();
+                fullClusterIndex++;
+            }
+
+        } else if (node.getType() == 'd') {
+            //Если директория, то смотрим чтобы не было линков и только тогда удаляем
+
+            //Смотрим есть ли у ноды ссылки(пустая или нет)
+            Arrays.sort(node.getLink());
+            if (node.getLink()[Settings.MAX_DIR_COUNT - 1] > 0) {
+                throw new Exception("Directory not empty");
+            }
+
+            node.setName("");
+            node.setSize(0);
+            node.setType('-');
+
+            node.writeNode(file);
+
+            Arrays.sort(parent.getLink());
+            int index = Arrays.binarySearch(parent.getLink(), node.getAddress());
+            parent.getLink()[index] = 0;
+            parent.updateLinks(file);
+
+        }
     }
 
-    public void move(String path1, String path2) throws Exception {
-        throw new Exception("not implemented yet");
-        //тупо переместить адрес ноды
+    /**
+     * Moves node from parent to new parent
+     *
+     * @param node      Node to move
+     * @param parent    node which contains node
+     * @param newParent new parent node
+     * @throws Exception any container problem, or logic checks fail
+     */
+    public void move(Node node, Node parent, Node newParent) throws Exception {
+        if (parent.getType() != 'd' || newParent.getType() == 'd') {
+            throw new Exception("One of parents is not directory");
+        }
+
+        //Ищем свободное место для новой ссылки и проверяем уникальность имен
+        int index = -1;
+        for (int i = 0; i < newParent.getLink().length; i++) {
+            //Ищем пустую ссылку
+            if (index == -1 && newParent.getLink()[i] == 0) {
+                index = i;
+            }
+
+            //Проверяем имя ноды и имя ссылки на уникальность
+            if (Arrays.equals(node.getName(), Node.getNodeAtPoint(file, newParent.getLink()[i]).getName())) {
+                throw new Exception("Duplicate node name");
+            }
+        }
+
+        if (index == -1) {
+            throw new Exception("No empty links");
+        }
+
+        //Вытаскиваем адрес из старого родителя
+        Arrays.sort(parent.getLink());
+        int index2 = Arrays.binarySearch(parent.getLink(), node.getAddress());
+        if (index2 < 0) {
+            throw new Exception("Parent doesn't contain node");
+        }
+        //Пишем в нового родителя ссылку на ноду
+        newParent.getLink()[index] = node.getAddress();
+        //А в старом затираем ссылку
+        parent.getLink()[index2] = 0;
     }
 
     public Node getNodeByPath(long link) throws IOException {

@@ -1,6 +1,12 @@
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 import org.junit.Test;
+import ru.mltny.vfs.Settings;
 import ru.mltny.vfs.VFSToolsImpl;
+import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
+
+import java.io.IOException;
 
 /**
  * Created by IntelliJ IDEA.
@@ -13,10 +19,14 @@ import ru.mltny.vfs.units.Node;
 
 public class TestArchive {
 
+    private String path = "/Users/maloletniy/Test/container.txt";
+    VFSToolsImpl tools;
+    private final Logger LOG = Logger.getLogger(TestArchive.class);
+
     @Test
     public void test() {
         try {
-            VFSToolsImpl tools = new VFSToolsImpl("/Users/maloletniy/Test/container.txt");
+            VFSToolsImpl tools = new VFSToolsImpl(path);
 
             //Создаем контейнер
             tools.createContainer();
@@ -41,13 +51,16 @@ public class TestArchive {
             testData[1024] = 101;
 
 
+            //todo maloletniy тесты для переименования\перемещения и append
+
             for (Long link : n.getLink()) {
                 if (link > 0) {
                     Node node = tools.getNodeByPath(link);
 
                     time = System.currentTimeMillis();
                     tools.write(node, testData);
-                    System.out.println("write node data:" + (System.currentTimeMillis() - time));
+                    LOG.debug("write node data:" + (System.currentTimeMillis() - time));
+//                    System.out.println("write node data:" + (System.currentTimeMillis() - time));
                 }
             }
 
@@ -64,5 +77,24 @@ public class TestArchive {
 
     }
 
+    @Test
+    public void testCreateContainer() throws IOException {
+
+        tools = new VFSToolsImpl(path);
+
+        long time = System.currentTimeMillis();
+        tools.createContainer();
+        LOG.info("Create container:" + (System.currentTimeMillis() - time));
+
+        Node node = tools.getNodeByPath(0);
+        LOG.info(node);
+        if (node.getName()[0] != '.')
+            assert false;
+
+        Cluster cluster = tools.getClusterByPath(Settings.CLUSTER_FIRST_ADDRESS);
+        LOG.info(cluster);
+        if (cluster.getSize() != 0 || cluster.getLink() != -1)
+            assert false;
+    }
 
 }
