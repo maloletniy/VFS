@@ -4,9 +4,7 @@ import ru.mltny.vfs.Settings;
 import ru.mltny.vfs.VFSToolsImpl;
 import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
-import sun.rmi.runtime.Log;
 
-import java.io.IOException;
 import java.util.Arrays;
 
 /**
