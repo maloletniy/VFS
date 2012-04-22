@@ -13,7 +13,7 @@ import java.io.IOException;
  */
 public interface VFSTools {
 
-    public void create(char type, String name, Node parent) throws Exception;
+    public Node create(char type, String name, Node parent) throws Exception;
 
     public void write(Node node, byte[] bytes) throws Exception;
 

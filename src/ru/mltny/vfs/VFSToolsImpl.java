@@ -3,7 +3,6 @@ package ru.mltny.vfs;
 import org.apache.log4j.Logger;
 import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
-import sun.rmi.runtime.Log;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -25,6 +24,8 @@ public class VFSToolsImpl implements VFSTools {
     //Получаем на 10гб(20971520 clusters) 85мб занимает только хранение состояний кластеров
     //todo malolentiy тут облажался, надо хранить адреса а не индексы, иначе не покрывает весь long
     private int[] emptyClusters = new int[Settings.CLUSTER_COUNT];
+    //Состояние нодов
+    private long[] emptyNodes = new long[Settings.NODE_COUNT];
 
     public VFSToolsImpl(String path) throws IOException {
         this.file = new RandomAccessFile(path, "rw");
@@ -42,9 +43,10 @@ public class VFSToolsImpl implements VFSTools {
      */
     private void updateContainerInfo() throws IOException {
         long time1 = System.currentTimeMillis();
+        //todo maloletniy из за того что начало от 0, мы потеряли один индекс, надо переходить на адреса в виде long
         for (int i = 0; i < emptyClusters.length; i++) {
             file.seek(Settings.CLUSTER_FIRST_ADDRESS + i * Cluster.getObjectSize());
-            //Если кластар занят то значение его = 0
+            //Если кластар занят то значение его = 0  - а надо бы было хотя бы -1 сделать
             if (file.readInt() > 0) {
                 emptyClusters[i] = 0;
             } else {
@@ -52,6 +54,18 @@ public class VFSToolsImpl implements VFSTools {
                 emptyClusters[i] = i;
             }
         }
+
+        for (int i = 1; i < emptyNodes.length; i++) {
+            file.seek(i * Node.getObjectSize());
+            //Если нода заняата(тип d или f ) то значение ее = 0
+            if (file.readChar() != '-') {
+                emptyNodes[i] = 0;
+            } else {
+                //если нода свободна то хранием ее адрес
+                emptyNodes[i] = i * Node.getObjectSize();
+            }
+        }
+
         if (LOG.isInfoEnabled()) {
             LOG.info("Update container: " + (System.currentTimeMillis() - time1));
         }
@@ -66,6 +80,16 @@ public class VFSToolsImpl implements VFSTools {
         emptyClusters[emptyClusters.length - 1] = 0;
         return address;
 
+    }
+
+    private long getEmptyNodeAddress() throws Exception {
+        Arrays.sort(emptyNodes);
+        long address = emptyNodes[emptyNodes.length - 1];
+        if (address == 0) {
+            throw new Exception("All nodes are full");
+        }
+        emptyNodes[emptyNodes.length - 1] = 0;
+        return address;
     }
 
     /**
@@ -118,31 +142,12 @@ public class VFSToolsImpl implements VFSTools {
      * @param type   'f' - file , 'd'-folder, '-' - free node
      * @param name   name of node(will autocut to 16chars)
      * @param parent node which will store link to created node
+     * @return Node of created file
      * @throws IOException
      */
-    public void create(char type, String name, Node parent) throws Exception {
+    public Node create(char type, String name, Node parent) throws Exception {
         //Ищем пустую ноду
-        //todo maloletniy проседает при создании, посмотреть, скорее сего поиск свободной ноды
-        long freeNodePointer = -1;
-
-        for (int i = 1; i < Settings.NODE_COUNT; i++) {
-            Node n = Node.getNodeAtPoint(file, Node.getObjectSize() * i);
-
-            //проверка на уникальность имени создаваемого файла
-            if (Arrays.equals(n.getName(), name.toCharArray())) {
-                throw new Exception("Non unique name");
-            }
-
-            // нода пустая и мы еще не нашли пустую ноду;
-            if (freeNodePointer == -1 && n.getType() == '-') {
-                freeNodePointer = n.getAddress();
-            }
-        }
-
-        //Если пустой ноды не нашлось то извиняйте
-        if (freeNodePointer == -1) {
-            throw new Exception("Node limit error");
-        }
+        long freeNodePointer = getEmptyNodeAddress();
 
         Node node = new Node();
         node.setName(name);
@@ -155,7 +160,6 @@ public class VFSToolsImpl implements VFSTools {
         //Ищем свободное место в родителе куда записать указатель (сортируем и берем первый элемент)
         Arrays.sort(parent.getLink());
 
-
         if (parent.getLink()[0] != 0) {
             throw new Exception("Directory limit error");
         }
@@ -164,6 +168,8 @@ public class VFSToolsImpl implements VFSTools {
 
         //Обновляем скисок ссылок родителя в контейнере
         parent.updateLinks(file);
+
+        return node;
     }
 
     public void write(Node node, byte[] bytes) throws Exception {
@@ -315,15 +321,17 @@ public class VFSToolsImpl implements VFSTools {
      * @throws Exception any container exception
      */
     public void append(Node node, byte[] bytes) throws Exception {
-
-        long nextClusterAddress = node.getAddress();
+        if (node.getType() != 'f') {
+            throw new Exception("Node it not file ");
+        }
+        long nextClusterAddress = node.getLink()[0];
         Cluster c = null;
         int offset = 0;
 
         //Ищем последний кластер в цепочке
         while (nextClusterAddress != -1) {
             c = Cluster.getClusterAtPoint(file, nextClusterAddress);
-            nextClusterAddress = c.getAddress();
+            nextClusterAddress = c.getLink();
         }
         if (c == null) {
             throw new Exception("Cluster calculate error");
@@ -333,18 +341,20 @@ public class VFSToolsImpl implements VFSTools {
             offset += c.appendClusterData(file, bytes, offset);
             //Обновляем инфу о размере записанных данных
             c.setSize(c.getSize() + offset);
-            c.writeClusterInfo(file);
         }
 
-        //Если еще остались данные после допии в кластер
+        //Если еще остались данные после допиcи в кластер
         if (offset < bytes.length) {
             // берем новые кластера, и пишем в них до конца данных, делаем ссылки на след кластера и пишем размер
             nextClusterAddress = Settings.CLUSTER_FIRST_ADDRESS + getEmptyClusterIndex() * Cluster.getObjectSize();
+            //Обновляем в последем кластере ссылку на след
+            c.setLink(nextClusterAddress);
+
             while (offset < bytes.length) {
                 Cluster cluster = new Cluster(nextClusterAddress);
 
                 //Если этого кластера не достаточно для записи всех данных то нужно селать ссылку на след
-                if ((offset + Settings.CLUSTER_SIZE_BYTES) > bytes.length) {
+                if ((offset + Settings.CLUSTER_SIZE_BYTES) < bytes.length) {
                     nextClusterAddress = Settings.CLUSTER_FIRST_ADDRESS + getEmptyClusterIndex() * Cluster.getObjectSize();
                     cluster.setLink(nextClusterAddress);
                 } else {
@@ -359,7 +369,11 @@ public class VFSToolsImpl implements VFSTools {
                 cluster.writeClusterInfo(file);
             }
         }
+        c.writeClusterInfo(file);
 
+        //Обновляем рамер записанных данных
+        node.setSize(node.getSize() + bytes.length);
+        node.updateSize(file);
     }
 
     /**
@@ -370,6 +384,9 @@ public class VFSToolsImpl implements VFSTools {
      * @throws Exception if any container problem
      */
     public void rename(Node node, Node parent, String name) throws Exception {
+        if (node.getAddress() == 0) {
+            throw new Exception("Cannot rename root");
+        }
         char[] charName = name.toCharArray();
         boolean inDir = false;
         //проверяем уникальность имен в родителе
@@ -398,10 +415,15 @@ public class VFSToolsImpl implements VFSTools {
      * @throws Exception if any container or logic problem
      */
     public void delete(Node node, Node parent) throws Exception {
-        //todo maloletniy delete operation
+        if (node.getAddress() == 0) {
+            throw new Exception("Cannot delete root");
+        }
         //Если файл то бежим по всем кластерам, отмечаем размер 0, ссылку -1 и помещаем индекс в список пустых кластеров,
         //а также удаляем из родительской ноды ссылку
         if (node.getType() == 'f') {
+            //Вытаскиваем ссылку на первый кластер перед обнулением
+            long nextLinkAddress = node.getLink()[0];
+
             //Обнуляем информацию о ноде
             node.setSize(0);
             node.getLink()[0] = 0;
@@ -419,7 +441,6 @@ public class VFSToolsImpl implements VFSTools {
             //Сортируем пустые индексы чтобы в начале появились занятые кластеры
             Arrays.sort(emptyClusters);
             int fullClusterIndex = 0;
-            long nextLinkAddress = node.getLink()[0];
             while (nextLinkAddress != -1) {
                 Cluster c = Cluster.getClusterAtPoint(file, nextLinkAddress);
                 nextLinkAddress = c.getLink();
@@ -434,7 +455,8 @@ public class VFSToolsImpl implements VFSTools {
             }
 
         } else if (node.getType() == 'd') {
-            //Если директория, то смотрим чтобы не было линков и только тогда удаляем
+            //Если директория, то смотрим чтобы не было линков и только тогда удаляем,
+            //после чего добавляем ее в список свободных нод
 
             //Смотрим есть ли у ноды ссылки(пустая или нет)
             Arrays.sort(node.getLink());
@@ -453,6 +475,10 @@ public class VFSToolsImpl implements VFSTools {
             parent.getLink()[index] = 0;
             parent.updateLinks(file);
 
+            Arrays.sort(emptyNodes);
+            //Доавляем адрес ноды в свободный список
+            emptyNodes[0] = node.getAddress();
+
         }
     }
 
@@ -465,7 +491,10 @@ public class VFSToolsImpl implements VFSTools {
      * @throws Exception any container problem, or logic checks fail
      */
     public void move(Node node, Node parent, Node newParent) throws Exception {
-        if (parent.getType() != 'd' || newParent.getType() == 'd') {
+        if (node.getAddress() == 0) {
+            throw new Exception("Cannot delete root");
+        }
+        if (parent.getType() != 'd' || newParent.getType() != 'd') {
             throw new Exception("One of parents is not directory");
         }
 
@@ -497,6 +526,8 @@ public class VFSToolsImpl implements VFSTools {
         newParent.getLink()[index] = node.getAddress();
         //А в старом затираем ссылку
         parent.getLink()[index2] = 0;
+        parent.updateLinks(file);
+        newParent.updateLinks(file);
     }
 
     public Node getNodeByPath(long link) throws IOException {

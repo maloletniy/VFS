@@ -18,7 +18,6 @@ public class Node {
     private char type;
     private long[] link = new long[Settings.MAX_DIR_COUNT];
     private long address;
-    private long parentLink;
 
     public long getAddress() {
         return address;
