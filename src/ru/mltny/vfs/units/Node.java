@@ -112,7 +112,7 @@ public class Node {
      */
     public void updateLinks(RandomAccessFile file) throws IOException {
         //смещение к указателя на ссылки
-        file.seek(this.address + 34);
+        file.seek(this.address + 2 + Settings.MAX_NAME_LENGTH * 2);
         for (long l : this.link) {
             file.writeLong(l);
         }
@@ -120,7 +120,7 @@ public class Node {
 
     public void updateSize(RandomAccessFile file) throws IOException {
         //смещение к указателя на размер
-        file.seek(this.address + 34 + 16 * 8);
+        file.seek(this.address + 2 + Settings.MAX_NAME_LENGTH * 2 + Settings.MAX_DIR_COUNT * 8);
         file.writeInt(this.size);
     }
 
@@ -133,8 +133,8 @@ public class Node {
     }
 
     public static int getObjectSize() {
-        //char char[16] long[32] int
-        return 2 + 16 * 2 + 16 * 8 + 4;
+        //char char[] long[] int
+        return 2 + Settings.MAX_NAME_LENGTH * 2 + Settings.MAX_DIR_COUNT * 8 + 4;
     }
 
     @Override

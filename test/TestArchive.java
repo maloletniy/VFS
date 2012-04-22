@@ -5,6 +5,10 @@ import ru.mltny.vfs.VFSToolsImpl;
 import ru.mltny.vfs.units.Cluster;
 import ru.mltny.vfs.units.Node;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.Arrays;
 
 /**
@@ -232,4 +236,84 @@ public class TestArchive {
 
     }
 
+
+    @Test
+    public void unpackRootNodeToDirectory() throws Exception {
+        final String path = "/Users/maloletniy/Test/container.txt";
+        tools = new VFSToolsImpl(path);
+        Node root = tools.getNodeByPath(0);
+        File f = new File("/Users/maloletniy/Test/VFS");
+        if (!f.mkdir()) {
+            throw new Exception("Create directory " + f.getName() + " failed");
+        }
+        createDirectory(root, f);
+
+    }
+
+    public void saveFile(Node file, File dir) throws Exception {
+        File f = new File(dir, String.valueOf(file.getName()).trim());
+        FileOutputStream fos = new FileOutputStream(f);
+        fos.write(tools.read(file));
+        fos.close();
+    }
+
+    public void createDirectory(Node node, File dir) throws Exception {
+        for (long l : node.getLink()) {
+            if (l == 0) continue;
+            Node file = tools.getNodeByPath(l);
+            LOG.info(String.valueOf(file.getName()).trim());
+            if (file.getType() == 'd') {
+                File subDir = new File(dir, String.valueOf(file.getName()).trim());
+                if (!subDir.mkdir()) {
+                    throw new Exception("Create directory " + subDir.getName() + " failed");
+                }
+                createDirectory(file, subDir);
+            } else if (file.getType() == 'f') {
+                saveFile(file, dir);
+            }
+        }
+    }
+
+    @Test
+    public void packDirectoryToContainer() throws Exception {
+        String path = "/Users/maloletniy/Idea Projects/VFS/VFS";
+        File f = new File(path);
+
+        testCreateContainer();
+        Node root = tools.getNodeByPath(0);
+        addDirectory(f, root);
+        root = tools.getNodeByPath(0);
+        LOG.info(root);
+
+    }
+
+    private void addFile(Node node, File file) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        FileInputStream fos = new FileInputStream(file);
+        byte[] buf = new byte[1024];
+        int len;
+        while ((len = fos.read(buf)) > 0) {
+            out.write(buf, 0, len);
+        }
+        tools.write(node, out.toByteArray());
+    }
+
+    private void addDirectory(File dir, Node parent) throws Exception {
+        if (!dir.getName().startsWith(".") || dir.getName().equals(".idea"))
+            for (File file : dir.listFiles()) {
+                char type = 'f';
+                if (file.isDirectory()) {
+                    type = 'd';
+                }
+                Node fileNode = tools.create(type, file.getName(), parent);
+                if (file.isFile()) {
+                    addFile(fileNode, file);
+                }
+                if (file.isDirectory()) {
+                    addDirectory(file, fileNode);
+                }
+                LOG.info(fileNode);
+
+            }
+    }
 }

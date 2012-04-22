@@ -13,7 +13,7 @@ public final class Settings {
 
     public static final short MAX_DIR_COUNT = 16;
 
-    public static final short MAX_NAME_LENGTH = 16;
+    public static final short MAX_NAME_LENGTH = 24;
 
     public static final int CLUSTER_SIZE_BYTES = 1024;
 
