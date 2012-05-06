@@ -22,19 +22,32 @@ import java.util.Arrays;
 
 public class TestArchive {
 
-    private VFSToolsImpl tools;
+    private static VFSToolsImpl tools;
     private final Logger LOG = Logger.getLogger(TestArchive.class);
 
-    private Node prevStepNode = null;
+    private final String TEST_DIR = "./Container_Test";
+    private final String CONT_NAME = "containter.txt";
+    private final String CONT_PATH = TEST_DIR + "/" + CONT_NAME;
+
+    private static Node prevStepNode = null;
+
+    @Test
+    public void createTestDir() throws Exception {
+        File f = new File(TEST_DIR);
+        if (!f.exists() && !f.mkdirs()) {
+            throw new Exception("TeastDir create fail");
+        }
+    }
 
     //Тест на создание контейнера. Создаем контейнер, проверяем, что первая нода это всегда корень
     // и что первый кластер имеетразмер 0 и никуда не ссылается
+
     @Test
     public void testCreateContainer() throws Exception {
 
-        final String path = "/Users/maloletniy/Test/container.txt";
+//        final String path = "./container.txt";
 
-        tools = new VFSToolsImpl(path);
+        tools = new VFSToolsImpl(CONT_PATH);
 
         long time = System.currentTimeMillis();
         tools.createContainer();
@@ -56,7 +69,7 @@ public class TestArchive {
     //Проверяем что создали файл, записали в него данные, прочитав данные, убедились, что они верны записанным
     @Test
     public void createDirFileWriteRead() throws Exception {
-        testCreateContainer();
+//        testCreateContainer();
         Node root = prevStepNode;
 
 
@@ -126,7 +139,7 @@ public class TestArchive {
     //Добавляет к существующему файлу такие же данные и проверяем что обе части равные
     @Test
     public void AppendData() throws Exception {
-        createDirFileWriteRead();
+//        createDirFileWriteRead();
         Node testFile = prevStepNode;
 
         byte[] testFileData = tools.read(testFile);
@@ -165,7 +178,7 @@ public class TestArchive {
     //Переименовывыем файл, перемещаем его в корень, удаляем папку Test, удаляем файл
     @Test
     public void RenameMoveDelete() throws Exception {
-        createDirFileWriteRead();
+//        createDirFileWriteRead();
 
         Node root = tools.getNodeByPath(0);
         Arrays.sort(root.getLink());
@@ -182,7 +195,7 @@ public class TestArchive {
 
 
         testFile = tools.getNodeByPath(testFile.getAddress());
-        if (!Arrays.equals(testFile.getName(), "text2.txt       ".toCharArray())) {
+        if (!new String(testFile.getName()).trim().equals("text2.txt")) {
             throw new Exception("Rename error");
         }
         //Перемещаем файл в корень
@@ -236,14 +249,72 @@ public class TestArchive {
 
     }
 
+    @Test
+    public void packDirectoryToContainer() throws Exception {
+        //запаковываем директорию с проектом
+        String path = ".";
+        File f = new File(path);
+        if (!f.exists() && !f.mkdir()) {
+            throw new Exception("Create Test folder error");
+        }
+
+        testCreateContainer();
+        Node root = tools.getNodeByPath(0);
+        addDirectory(f, root);
+        root = tools.getNodeByPath(0);
+        LOG.info(root);
+
+    }
+
+    private void addFile(Node node, File file) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        FileInputStream fos = new FileInputStream(file);
+        byte[] buf = new byte[1024];
+        int len;
+        LOG.info("writing file  " + file.getName() + " size = " + file.length());
+        while ((len = fos.read(buf)) > 0) {
+            /*if (len < 1024) {
+                tools.append(node, Arrays.copyOfRange(buf, 0, len));
+            } else {
+                tools.append(node, buf);
+            }*/
+            out.write(buf, 0, len);
+        }
+        tools.write(node, out.toByteArray());
+    }
+
+    private void addDirectory(File dir, Node parent) throws Exception {
+        if (dir.getName().equals(".") || dir.getName().equals(".idea") ||
+                (!dir.getPath().equals(TEST_DIR) && !dir.getName().startsWith(".")))
+
+            for (File file : dir.listFiles()) {
+                char type = 'f';
+                if (file.isDirectory()) {
+                    type = 'd';
+                }
+                //skip files and dirs here
+                Node fileNode = tools.create(type, file.getName(), parent);
+                if (file.isFile()) {
+                    addFile(fileNode, file);
+                }
+                if (file.isDirectory()) {
+                    addDirectory(file, fileNode);
+                }
+                LOG.info(fileNode);
+            }
+    }
+
 
     @Test
     public void unpackRootNodeToDirectory() throws Exception {
-        final String path = "/Users/maloletniy/Test/container.txt";
-        tools = new VFSToolsImpl(path);
+//        final String path = "./container.txt";
+        tools = new VFSToolsImpl(CONT_PATH);
+
         Node root = tools.getNodeByPath(0);
-        File f = new File("/Users/maloletniy/Test/VFS");
-        if (!f.mkdir()) {
+
+        //Распаковываем в папку теста
+        File f = new File(TEST_DIR + "/UnpackTest");
+        if (!f.exists() && !f.mkdir()) {
             throw new Exception("Create directory " + f.getName() + " failed");
         }
         createDirectory(root, f);
@@ -264,7 +335,7 @@ public class TestArchive {
             LOG.info(String.valueOf(file.getName()).trim());
             if (file.getType() == 'd') {
                 File subDir = new File(dir, String.valueOf(file.getName()).trim());
-                if (!subDir.mkdir()) {
+                if (!subDir.exists() && !subDir.mkdir()) {
                     throw new Exception("Create directory " + subDir.getName() + " failed");
                 }
                 createDirectory(file, subDir);
@@ -274,46 +345,5 @@ public class TestArchive {
         }
     }
 
-    @Test
-    public void packDirectoryToContainer() throws Exception {
-        String path = "/Users/maloletniy/Idea Projects/VFS/VFS";
-        File f = new File(path);
 
-        testCreateContainer();
-        Node root = tools.getNodeByPath(0);
-        addDirectory(f, root);
-        root = tools.getNodeByPath(0);
-        LOG.info(root);
-
-    }
-
-    private void addFile(Node node, File file) throws Exception {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        FileInputStream fos = new FileInputStream(file);
-        byte[] buf = new byte[1024];
-        int len;
-        while ((len = fos.read(buf)) > 0) {
-            out.write(buf, 0, len);
-        }
-        tools.write(node, out.toByteArray());
-    }
-
-    private void addDirectory(File dir, Node parent) throws Exception {
-        if (!dir.getName().startsWith(".") || dir.getName().equals(".idea"))
-            for (File file : dir.listFiles()) {
-                char type = 'f';
-                if (file.isDirectory()) {
-                    type = 'd';
-                }
-                Node fileNode = tools.create(type, file.getName(), parent);
-                if (file.isFile()) {
-                    addFile(fileNode, file);
-                }
-                if (file.isDirectory()) {
-                    addDirectory(file, fileNode);
-                }
-                LOG.info(fileNode);
-
-            }
-    }
 }

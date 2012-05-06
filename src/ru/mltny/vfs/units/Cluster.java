@@ -122,7 +122,7 @@ public class Cluster {
     }
 
     public static int getObjectSize() {
-        //long data[] long
+        //int data[] long
         return 4 + Settings.CLUSTER_SIZE_BYTES + 8;
     }
 
